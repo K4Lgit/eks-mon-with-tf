@@ -1,0 +1,64 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: agent
+  namespace: monitoring
+spec:
+  version: v2.39.1
+  serviceAccountName: prometheus
+  serviceMonitorSelector:
+    matchLabels:
+      component: prometheus-agent
+  serviceMonitorNamespaceSelector:
+    matchLabels:
+      monitoring: prometheus-agent
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  replicas: 1
+  logLevel: debug
+  logFormat: logfmt
+  scrapeInterval: 30s
+  remoteWrite:
+  - url: {{amp_url}}
+    sigv4:
+      region: us-east-1
+    queueConfig:
+      maxSamplesPerSend: 1000
+      maxShards: 200
+      capacity: 2500
+  containers:
+  - name: prometheus
+    args:
+    - --config.file=/etc/prometheus/config_out/prometheus.env.yaml
+    - --storage.agent.path=/prometheus
+    - --enable-feature=agent
+    - --web.enable-lifecycle
+  # additionalScrapeConfigs:
+  #   name: additional-scrape-configs
+  #   key: prometheus-additional.yaml
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - general
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - prometheus
+          topologyKey: kubernetes.io/hostname
+        weight: 100
