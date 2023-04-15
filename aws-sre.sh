@@ -1,7 +1,6 @@
 #!/bin/bash
 #####
-cd ~/aws-sre
-
+# echo "starting the build"
 sudo yum -y install openssl
 curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 > get_helm.sh
 chmod 700 get_helm.sh
@@ -12,17 +11,16 @@ sudo mv /tmp/eksctl /usr/local/bin
 sudo yum install -y yum-utils shadow-utils
 sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
 sudo yum -y install terraform
-
 #####
-cd ~/aws-sre
-cd ./tf
+cd tf
+aws sts get-caller-identity
 
 terraform init
 terraform plan
-terraform apply
+aws sts get-caller-identity
 
+terraform apply --auto-approve
 #####
-cd ~/aws-sre
 unset CLUSTER_NAME
 unset AMP_WORKSPACE_ALIAS
 unset WORKSPACE_ID
@@ -39,9 +37,13 @@ echo $WORKSPACE_ID
 echo $AMP_ENDPOINT_RW
 
 aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
-
 #####
-cd ~/aws-sre
+cd ../
+kubectl apply -f eks-console-full-access.yaml
+eksctl get iamidentitymapping --cluster demo --region=us-east-1
+# eksctl create iamidentitymapping --cluster demo --region=us-east-1 --arn arn:aws:iam::348232623726:user/eks-mgr --group eks-console-dashboard-full-access-group --no-duplicate-arns
+eksctl create iamidentitymapping --cluster demo --region=us-east-1 --arn arn:aws:iam::348232623726:user/eks-admin --group eks-console-dashboard-full-access-group --no-duplicate-arns
+eksctl create iamidentitymapping --cluster demo --region=us-east-1 --arn arn:aws:iam::348232623726:user/* --group eks-console-dashboard-full-access-group --no-duplicate-arns
 kubectl create -f prometheus-operator-crd
 kubectl apply -f prometheus-operator
 sed -i "s?{{amp_url}}?$AMP_ENDPOINT_RW?g" ./prometheus-agent/4-prometheus.yaml
@@ -49,9 +51,7 @@ kubectl apply -f prometheus-agent
 kubectl apply -f node-exporter
 kubectl apply -f cadvisor
 kubectl apply -f kube-state-metrics
-
-##### CW
-cd ~/aws-sre
+#####
 eksctl create iamserviceaccount --name cloudwatch-agent --namespace amazon-cloudwatch --cluster demo --role-name "eks-demo-iamserviceaccount-CWAgent-Role" --attach-policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy --approve --override-existing-serviceaccounts
 
 kubectl apply -f ./cw-ci/cloudwatch-namespace.yaml
@@ -79,3 +79,11 @@ cat ./cw-ci/cw_dashboard_fluent_bit.json | sed "s/{{YOUR_AWS_REGION}}/${REGION_N
 eksctl create iamserviceaccount --name cwagent-prometheus --namespace amazon-cloudwatch --cluster demo --attach-policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy --approve --override-existing-serviceaccounts
 
 kubectl apply -f ./cw-ci/prometheus-eks.yaml
+####
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+kubectl create namespace nginx-ingress-sample
+helm install my-nginx ingress-nginx/ingress-nginx --namespace nginx-ingress-sample --set controller.metrics.enabled=true --set-string controller.metrics.service.annotations."prometheus\.io/port"="10254" --set-string controller.metrics.service.annotations."prometheus\.io/scrape"="true"
+sleep 30
+EXTERNAL_IP=`kubectl get service -n nginx-ingress-sample | grep 'LoadBalancer' |  awk '{ print $4 }'`
+SAMPLE_TRAFFIC_NAMESPACE=nginx-sample-traffic
+cat ./nginx-app/nginx-traffic-sample.yaml | sed "s/{{external_ip}}/$EXTERNAL_IP/g" | sed "s/{{namespace}}/$SAMPLE_TRAFFIC_NAMESPACE/g" | kubectl apply --validate="false" -f -
