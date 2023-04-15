@@ -196,6 +196,5 @@ resource "aws_grafana_workspace" "grafana_demo" {
     authentication_providers = ["AWS_SSO"]
     permission_type = "SERVICE_MANAGED"
     role_arn = aws_iam_role.grafana_assume.arn
-    data_sources = ["PROMETHEUS"]
-    data_sources = ["CLOUDWATCH"]
+    data_sources = ["PROMETHEUS", "CLOUDWATCH"]
 }
